@@ -2,8 +2,7 @@ import { HttpTypes } from "@medusajs/types"
 
 export function isReturnOption(shippingOption: HttpTypes.AdminShippingOption) {
   return !!shippingOption.rules?.find(
-    (r) =>
-      r.attribute === "is_return" && r.value === "true" && r.operator === "eq"
+    (r) => r.attribute === "is_return" && r.value === "true"
   )
 }
 
@@ -16,4 +15,8 @@ export function isOptionEnabledInStore(
       r.value === "true" &&
       r.operator === "eq"
   )
+}
+
+export function getShippingProfileName(name: string) {
+  return name.split(":")[1]
 }

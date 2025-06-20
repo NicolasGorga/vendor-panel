@@ -11,6 +11,13 @@ import { fetchQuery, importProductsQuery, sdk } from "../../lib/client"
 import { queryClient } from "../../lib/query-client"
 import { queryKeysFactory } from "../../lib/query-key-factory"
 import { inventoryItemsQueryKeys } from "./inventory.tsx"
+import {
+  checkCategoryMatch,
+  checkCollectionMatch,
+  checkTagMatch,
+  checkTypeMatch,
+  checkStatusMatch,
+} from "./helpers/productFilters"
 
 const PRODUCTS_QUERY_KEY = "products" as const
 export const productsQueryKeys = queryKeysFactory(PRODUCTS_QUERY_KEY)
@@ -117,7 +124,10 @@ export const useProductVariant = (
     queryFn: async () => {
       const { product } = await fetchQuery(`/vendor/products/${productId}`, {
         method: "GET",
-        query: { fields: "*variants" },
+        query: {
+          fields:
+            "*variants,*variants.inventory,*variants.inventory.location_levels",
+        },
       })
 
       const variant = product.variants.find(
@@ -322,6 +332,18 @@ export const useDeleteVariantLazy = (
   })
 }
 
+export const useProductAttributes = (id: string) => {
+  const { data, ...rest } = useQuery({
+    queryFn: () =>
+      fetchQuery(`/vendor/products/${id}/applicable-attributes`, {
+        method: "GET",
+      }),
+    queryKey: ["product", id, "product-attributes"],
+  })
+
+  return { ...data, ...rest }
+}
+
 export const useProduct = (
   id: string,
   query?: Record<string, any>,
@@ -341,11 +363,40 @@ export const useProduct = (
         method: "GET",
         query: query as { [key: string]: string | number },
       }),
-    queryKey: productsQueryKeys.detail(id, query),
+    queryKey: productsQueryKeys.detail(id),
     ...options,
   })
 
   return { ...data, ...rest }
+}
+
+type SortField = "title" | "created_at" | "updated_at"
+type SortDirection = "asc" | "desc"
+
+const sortProducts = (
+  products: HttpTypes.AdminProduct[],
+  sortField: SortField,
+  direction: SortDirection
+) => {
+  return [...products].sort((a, b) => {
+    const aValue = a[sortField]
+    const bValue = b[sortField]
+
+    if (sortField === "title") {
+      const titleA = (aValue || "").toString()
+      const titleB = (bValue || "").toString()
+      return direction === "asc"
+        ? titleA.localeCompare(titleB)
+        : titleB.localeCompare(titleA)
+    }
+
+    // For dates
+    const dateA = new Date((aValue as string) || new Date())
+    const dateB = new Date((bValue as string) || new Date())
+    return direction === "asc"
+      ? dateA.getTime() - dateB.getTime()
+      : dateB.getTime() - dateA.getTime()
+  })
 }
 
 export const useProducts = (
@@ -359,36 +410,84 @@ export const useProducts = (
     >,
     "queryFn" | "queryKey"
   >,
-  filter?: Record<string, string>
+  filter?: HttpTypes.AdminProductListParams & {
+    tagId?: string | string[]
+    categoryId?: string | string[]
+    collectionId?: string | string[]
+    typeId?: string | string[]
+    status?: string | string[]
+    q?: string
+    sort?: string
+  }
 ) => {
   const { data, ...rest } = useQuery({
     queryFn: () =>
       fetchQuery("/vendor/products", {
         method: "GET",
-        query: query as { [key: string]: string },
+        query: query as Record<string, string | number>,
       }),
-    queryKey: productsQueryKeys.list(query),
+    queryKey: productsQueryKeys.list(),
     ...options,
   })
 
-  if (!filter) {
-    return { ...data, ...rest }
+  let products = data?.products || []
+
+  // Apply filters if any exist
+  if (
+    filter?.q ||
+    filter?.categoryId ||
+    filter?.tagId ||
+    filter?.collectionId ||
+    filter?.typeId ||
+    filter?.status
+  ) {
+    products = products.filter((item) => {
+      if (filter.q) {
+        return item.title.toLowerCase().includes(filter.q.toLowerCase())
+      }
+
+      return (
+        (filter.categoryId &&
+          checkCategoryMatch(item?.categories, filter.categoryId)) ||
+        (filter.tagId && checkTagMatch(item?.tags, filter.tagId)) ||
+        (filter.collectionId &&
+          checkCollectionMatch(item?.collection, filter.collectionId)) ||
+        (filter.typeId && checkTypeMatch(item?.type_id, filter.typeId)) ||
+        (filter.status && checkStatusMatch(item?.status, filter.status))
+      )
+    })
   }
 
-  const products = data?.products.filter(
-    (item) =>
-      (item?.categories?.find(({ id }) => id === filter.categoryId) && item) ||
-      (item?.tags?.find(({ id }) => id === filter.tagId) && item) ||
-      (item?.collection?.id === filter.collectionId && item) ||
-      (item?.type_id === filter.typeId && item)
-  )
+  // Apply sorting if specified
+  if (filter?.sort) {
+    const isDescending = filter.sort.startsWith("-")
+    const field = isDescending ? filter.sort.slice(1) : filter.sort
 
-  const count = products?.length || 0
+    if (["title", "created_at", "updated_at"].includes(field)) {
+      products = [...products].sort((a, b) => {
+        const aValue = a[field as keyof HttpTypes.AdminProduct]
+        const bValue = b[field as keyof HttpTypes.AdminProduct]
+
+        if (field === "title") {
+          const titleA = String(aValue || "")
+          const titleB = String(bValue || "")
+          return isDescending
+            ? titleB.localeCompare(titleA)
+            : titleA.localeCompare(titleB)
+        }
+
+        // For dates
+        const dateA = new Date((aValue as string) || new Date()).getTime()
+        const dateB = new Date((bValue as string) || new Date()).getTime()
+        return isDescending ? dateB - dateA : dateA - dateB
+      })
+    }
+  }
 
   return {
     ...data,
-    count,
-    products,
+    products: products?.slice(0, filter?.limit) || [],
+    count: products?.length || 0,
     ...rest,
   }
 }
@@ -435,7 +534,6 @@ export const useUpdateProduct = (
       await delete product.id
       await delete product.rating
       await delete payload.status
-      await delete payload.additional_data
 
       return fetchQuery(`/vendor/products/${id}`, {
         method: "POST",

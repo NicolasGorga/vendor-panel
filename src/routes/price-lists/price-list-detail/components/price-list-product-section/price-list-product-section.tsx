@@ -1,18 +1,17 @@
 import { PencilSquare, Plus, Trash } from "@medusajs/icons"
 import { HttpTypes } from "@medusajs/types"
 import { Checkbox, Container, Heading, toast, usePrompt } from "@medusajs/ui"
-import { keepPreviousData } from "@tanstack/react-query"
 import { RowSelectionState, createColumnHelper } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useNavigate } from "react-router-dom"
 
 import { ActionMenu } from "../../../../../components/common/action-menu"
 import { _DataTable } from "../../../../../components/table/data-table"
-import { usePriceListLinkProducts } from "../../../../../hooks/api/price-lists"
-import { useProducts } from "../../../../../hooks/api/products"
+import {
+  usePriceListLinkProducts,
+  usePriceListProducts,
+} from "../../../../../hooks/api/price-lists"
 import { useProductTableColumns } from "../../../../../hooks/table/columns/use-product-table-columns"
-import { useProductTableFilters } from "../../../../../hooks/table/filters/use-product-table-filters"
 import { useProductTableQuery } from "../../../../../hooks/table/query/use-product-table-query"
 import { useDataTable } from "../../../../../hooks/use-data-table"
 
@@ -27,8 +26,6 @@ export const PriceListProductSection = ({
   priceList,
 }: PriceListProductSectionProps) => {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const prompt = usePrompt()
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
@@ -36,19 +33,17 @@ export const PriceListProductSection = ({
     pageSize: PAGE_SIZE,
     prefix: PREFIX,
   })
-  const { products, count, isLoading, isError, error } = useProducts(
+
+  const { products, count, isLoading, isError, error } = usePriceListProducts(
+    priceList.id,
     {
-      ...searchParams,
-      price_list_id: [priceList.id],
-    },
-    {
-      placeholderData: keepPreviousData,
+      limit: searchParams.limit?.toString() ?? PAGE_SIZE,
+      offset: searchParams.offset?.toString() ?? 0,
+      fields: "+thumbnail",
     }
   )
 
-  const filters = useProductTableFilters()
   const columns = useColumns(priceList)
-  const { mutateAsync } = usePriceListLinkProducts(priceList.id)
 
   const { table } = useDataTable({
     data: products || [],
@@ -64,47 +59,6 @@ export const PriceListProductSection = ({
     },
     prefix: PREFIX,
   })
-
-  const handleDelete = async () => {
-    const res = await prompt({
-      title: t("general.areYouSure"),
-      description: t("priceLists.products.delete.confirmation", {
-        count: Object.keys(rowSelection).length,
-      }),
-      confirmText: t("actions.delete"),
-      cancelText: t("actions.cancel"),
-    })
-
-    if (!res) {
-      return
-    }
-
-    mutateAsync(
-      {
-        remove: Object.keys(rowSelection),
-      },
-      {
-        onSuccess: () => {
-          toast.success(
-            t("priceLists.products.delete.successToast", {
-              count: Object.keys(rowSelection).length,
-            })
-          )
-
-          setRowSelection({})
-        },
-        onError: (e) => {
-          toast.error(e.message)
-        },
-      }
-    )
-  }
-
-  const handleEdit = async () => {
-    const ids = Object.keys(rowSelection).join(",")
-
-    navigate(`products/edit?ids[]=${ids}`)
-  }
 
   if (isError) {
     throw error
@@ -135,31 +89,12 @@ export const PriceListProductSection = ({
       </div>
       <_DataTable
         table={table}
-        filters={filters}
         columns={columns}
         count={count}
         pageSize={PAGE_SIZE}
         isLoading={isLoading}
         navigateTo={(row) => `/products/${row.original.id}`}
-        orderBy={[
-          { key: "title", label: t("fields.title") },
-          { key: "created_at", label: t("fields.createdAt") },
-          { key: "updated_at", label: t("fields.updatedAt") },
-        ]}
-        commands={[
-          {
-            action: handleEdit,
-            label: t("actions.edit"),
-            shortcut: "e",
-          },
-          {
-            action: handleDelete,
-            label: t("actions.delete"),
-            shortcut: "d",
-          },
-        ]}
         pagination
-        search
         prefix={PREFIX}
         queryObject={raw}
       />
@@ -198,11 +133,7 @@ const ProductRowAction = ({
       },
       {
         onSuccess: () => {
-          toast.success(
-            t("priceLists.products.delete.successToast", {
-              count: 1,
-            })
-          )
+          toast.success("Product removed from price list")
         },
         onError: (e) => {
           toast.error(e.message)
@@ -219,7 +150,7 @@ const ProductRowAction = ({
             {
               icon: <PencilSquare />,
               label: t("priceLists.products.actions.editPrices"),
-              to: `products/edit?ids[]=${product.id}`,
+              to: `products/edit`,
             },
           ],
         },

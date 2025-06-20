@@ -33,11 +33,18 @@ export const PriceListPricesAddPricesForm = ({
     name: "products",
   })
 
-  const { products, isLoading, isError, error } = useProducts({
-    id: ids.map((id) => id.id),
-    limit: ids.length,
-    fields: "title,thumbnail,*variants",
+  const {
+    products: productsRaw,
+    isLoading,
+    isError,
+    error,
+  } = useProducts({
+    fields: "title,thumbnail,*variants,+status",
   })
+
+  const products = productsRaw?.filter((product) =>
+    ids.some((id) => id.id === product.id)
+  )
 
   const { setValue } = form
 

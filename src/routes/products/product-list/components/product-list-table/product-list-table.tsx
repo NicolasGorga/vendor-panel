@@ -24,11 +24,10 @@ import { useProductTableQuery } from "../../../../../hooks/table/query/use-produ
 import { useDataTable } from "../../../../../hooks/use-data-table"
 import { productsLoader } from "../../loader"
 
-const PAGE_SIZE = 20
+export const PAGE_SIZE = 20
 
 export const ProductListTable = () => {
   const { t } = useTranslation()
-  // const location = useLocation();
 
   const initialData = useLoaderData() as Awaited<
     ReturnType<ReturnType<typeof productsLoader>>
@@ -39,12 +38,22 @@ export const ProductListTable = () => {
   })
   const { products, count, isLoading, isError, error } = useProducts(
     {
-      ...searchParams,
-      fields: "+thumbnail",
+      limit: searchParams.limit,
+      offset: searchParams.offset,
+      fields: "+thumbnail,*categories",
     },
     {
       initialData,
       placeholderData: keepPreviousData,
+    },
+    {
+      collectionId: searchParams.collection_id,
+      categoryId: searchParams.category_id,
+      typeId: searchParams.type_id,
+      tagId: searchParams.tagId,
+      status: searchParams.status,
+      q: searchParams.q,
+      sort: searchParams.order,
     }
   )
 
